@@ -1,0 +1,297 @@
+// 
+// Included Files
+//
+
+#include "F28x_Project.h"
+#include "math.h"
+#include "stdlib.h"
+#include "string.h"
+#include "float.h"
+
+//
+// Function Prototypes
+//
+void ConfigureADC(void);
+void ConfigureEPWM(void);
+void PLL(void);
+interrupt void adca1_isr(void);
+void ConfigureIntPwm(void);
+//
+// Globals
+//
+Uint16 Duty = 320;
+Uint16 AdcaResults;
+static double x;
+static double wtQ15pi=0;  /* wt -1 to 1*/
+//  static double sinQ15=0;
+static double sinQ15r=0; /* PLL internal sin */
+static double cosQ15r=0; /* PLL internal cos */
+static double VinQ15=0;
+static double edQ15_0=0;
+static double edQ15_1=0;
+static double edQ15_2=0;
+static double wtQ15pi_0=0;
+static double wtQ15pi_1=0;
+static double wtQ15pi_2=0;
+static double AoQ15_0=0;
+static double AoQ15_1=0; // -0.7 in Q15
+static double AiQ15_0=0;
+static double AiQ15_1=0;   // just an value different from zero
+static double eQ15=0;
+static double  EPwm2TZIntCount;
+
+
+void main(void)
+{
+//
+// Step 1. Initialize System Control:
+// PLL, WatchDog, enable Peripheral Clocks
+// This example function is found in the F2837xS_SysCtrl.c file.
+//
+    InitSysCtrl();
+//
+// Step 2. Initialize GPIO:
+// This example function is found in the F2837xS_Gpio.c file and
+// illustrates how to set the GPIO to it's default state.
+//
+    InitGpio();
+    InitEPwm2Gpio();
+//
+// Step 3. Clear all interrupts and initialize PIE vector table:
+// Disable CPU interrupts
+//
+    DINT;
+
+//
+// Initialize the PIE control registers to their default state.
+// The default state is all PIE interrupts disabled and flags
+// are cleared.
+// This function is found in the F2837xS_PieCtrl.c file.
+//
+    InitPieCtrl();
+
+//
+// Disable CPU interrupts and clear all CPU interrupt flags:
+//
+    IER = 0x0000;
+    IFR = 0x0000;
+
+//
+// Initialize the PIE vector table with pointers to the shell Interrupt
+// Service Routines (ISR).
+// This will populate the entire table, even if the interrupt
+// is not used in this example.  This is useful for debug purposes.
+// The shell ISR routines are found in F2837xS_DefaultIsr.c.
+// This function is found in F2837xS_PieVect.c.
+//
+    InitPieVectTable();
+//
+// Map ISR functions
+//
+    EALLOW;
+    PieVectTable.EPWM2_INT = &adca1_isr; //function for EPWM2 interrupt 1
+    EDIS;
+
+//
+// Configure the ADC and power it up
+//
+    ConfigureADC();
+//
+// Configure the ePWM
+//
+    ConfigureEPWM();
+    ConfigureIntPwm();
+
+//
+// enable PIE interrupt
+//
+    PieCtrlRegs.PIEIER3.bit.INTx2 = 1;
+
+    IER |= M_INT3; //Enable group 3 interrupts
+    EINT;  // Enable Global interrupt INTM
+    ERTM;  // Enable Global realtime interrupt DBGM
+
+    EALLOW;
+    CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1;
+    EDIS;
+
+     while(1);
+
+}
+
+//
+// ConfigureADC - Write ADC configurations and power up the ADC for both
+//                ADC A
+//
+void ConfigureADC(void)
+{
+    EALLOW;
+    //
+    //write configurations
+    //
+    AdcaRegs.ADCCTL2.bit.PRESCALE = 6; //set ADCCLK divider to /4
+    AdcSetMode(ADC_ADCA, 1, ADC_SIGNALMODE_SINGLE);
+    //power up the ADC
+    //
+    AdcaRegs.ADCCTL1.bit.ADCPWDNZ = 1;
+
+    //
+    //delay for 1ms to allow ADC time to power up
+    //
+    DELAY_US(1000);
+
+    AdcaRegs.ADCSOC0CTL.bit.CHSEL = 0;  //SOC0 will convert pin A0
+    AdcaRegs.ADCSOC0CTL.bit.ACQPS = 63; //sample window is 100 SYSCLK cycles
+    AdcaRegs.ADCSOC0CTL.bit.TRIGSEL = 7; //trigger on ePWM2 SOCA/C
+    EDIS;
+}
+
+//
+// ConfigureEPWM - Configure EPWM SOC and compare values
+//
+
+void ConfigureEPWM(void)
+{
+    //
+      // Setup TBCLK
+      //
+      EPwm2Regs.TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN; // Count updown
+      EPwm2Regs.TBPRD = 620;       // Set timer period - 620 counts 40kHz
+      EPwm2Regs.TBCTL.bit.PHSEN = 0;    // Disable phase loading
+      EPwm2Regs.TBPHS.bit.TBPHS = 0x0000;        // Phase is 0
+      EPwm2Regs.TBCTR = 0x0000;                  // Clear counter
+      EPwm2Regs.TBCTL.bit.HSPCLKDIV = 0x0000    ;   // Clock ratio to SYSCLKOUT
+      EPwm2Regs.TBCTL.bit.CLKDIV = 0x0000;
+
+      //
+      // Setup shadow register load on ZERO
+      //
+      EPwm2Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;
+      EPwm2Regs.CMPCTL.bit.SHDWBMODE = CC_SHADOW;
+      EPwm2Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;
+      EPwm2Regs.CMPCTL.bit.LOADBMODE = CC_CTR_ZERO;
+
+      //
+      // Set Compare values
+      //
+      EPwm2Regs.CMPA.bit.CMPA = 310;      // 310 50%
+      EPwm2Regs.CMPB.bit.CMPB = 310;      // 310 50%
+
+      //
+      // Set actions
+      //
+      EPwm2Regs.AQCTLA.bit.CAU = AQ_SET;         // Set PWM2A on event A, up
+                                                 // count
+      EPwm2Regs.AQCTLA.bit.CBD = AQ_CLEAR;       // Clear PWM2A on event B, down
+                                                 // count
+      EPwm2Regs.AQCTLB.bit.CAU = AQ_SET;         // Set PWM2A on event A, up
+                                                 // count
+      EPwm2Regs.AQCTLB.bit.CBD = AQ_CLEAR;       // Clear PWM2A on event B, down
+                                                 // count
+
+
+   }
+void ConfigureIntPwm(void)
+{
+    EPwm2Regs.ETSEL.bit.INTEN = 1;        // Enable EPWMx_INT generation
+    EPwm2Regs.ETSEL.bit.INTSEL= 2;      //Enable event time-base counter equal to period (TBCTR = TBPRD)
+    EPwm2Regs.ETSEL.bit.INTSELCMP=0;
+    EPwm2Regs.ETPS.bit.INTPRD = 1;          // Generate pulse on 1st event
+    EPwm2Regs.ETPS.bit.INTPSSEL = 0;        // Generate pulse on 1st event
+    EPwm2Regs.ETCLR.bit.INT = 1;
+    EPwm2Regs.ETFLG.bit.INT = 0;
+
+}
+
+interrupt void adca1_isr(void)
+{
+
+        EPwm2Regs.ETSEL.bit.SOCAEN = 1;  //enable SOCA
+        DELAY_US(10);
+
+        VinQ15 = (AdcaResultRegs.ADCRESULT0);
+        Duty = VinQ15*120/819;
+        EPwm2Regs.CMPA.bit.CMPA = Duty;
+        EPwm2Regs.CMPB.bit.CMPB = Duty;
+        GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
+
+        //EPWM_TRIP_ZONE.C
+
+        EALLOW;
+        EPwm2Regs.ETCLR.bit.INT = 1;
+        EPwm2Regs.ETFLG.bit.INT = 0;
+        EDIS;
+
+        PieCtrlRegs.PIEACK.all = PIEACK_GROUP3;
+
+        EPwm2TZIntCount++;
+
+//#define PI M_PI
+//#define toQ15 pow(2,15)
+    sinQ15r = sin(wtQ15pi_0*3.14);
+    cosQ15r = cos(wtQ15pi_0*3.14);
+   eQ15 = VinQ15 - (AoQ15_0*cosQ15r); // erro
+
+   AiQ15_0 =  eQ15*cosQ15r;   // OK
+
+   //   AoQ15_x       0.01 + 0.01 z^-1
+   //   --------  =  --------------------
+   //   AiQ15_x            1 - z^-1
+
+   AoQ15_0 = AoQ15_1; // + AiQ15_0*0.01;
+   AoQ15_0 = AoQ15_0 + AiQ15_1*0.01;
+
+
+   edQ15_0 =eQ15*sinQ15r;
+
+   // wtQ15pi_x    0.02 + 20e-05 z^-1 - 0.02 z^-2
+   //  ------------ =  --------------------------------------
+   //  edQ15_x               1 - 2 z^-1 + z^-2
+
+   wtQ15pi_0 = edQ15_1*0.0002;
+
+   wtQ15pi_0 = wtQ15pi_0+(wtQ15pi_1*2) - wtQ15pi_2 + (edQ15_0*0.02);
+   wtQ15pi_0 = wtQ15pi_0 - edQ15_2*0.02;
+
+
+   // Update variables
+   AoQ15_1 = AoQ15_0;
+   AiQ15_1 = AiQ15_0;
+
+   wtQ15pi_2 = wtQ15pi_1;
+   wtQ15pi_1 = wtQ15pi_0;
+
+   edQ15_2 = edQ15_1;
+   edQ15_1 = edQ15_0;
+
+
+    wtQ15pi_0 = wtQ15pi_0 + 0.25; // Wff  erro aqui, colocar depois dos updates;
+
+//    sinQ15 = sin((wtQ15pi_0- 0.5)*3.14);   // to become -cos(x);
+
+    // sinQ15 = sin(wtQ15pi*PI);
+
+
+
+//    out[0]=  sinQ15;
+//    out[1]=  wtQ15pi_0;  // time
+//    out[2]=AoQ15_0;   // time step
+//
+     x =-180*cos(wtQ15pi*3.14);
+//
+//    if (x>0)
+//   {
+//   out[3]=1;
+//   out[4]=0;
+//   }
+//   if (x<0)
+//   {
+//   out[3]=1;
+//   out[4]=0;
+//   }
+
+}
+
+//
+// End of file
+//
