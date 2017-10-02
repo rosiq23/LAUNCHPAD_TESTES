@@ -1,4 +1,4 @@
-// 
+//
 // Included Files
 //
 
@@ -11,11 +11,14 @@
 //
 // Function Prototypes
 //
-void ConfigureADC(void);
-void ConfigureEPWM(void);
+void SetupADCContinuous(void);
+void ConfigureEPWM2(void);
+void ConfigureEPWM6(void);
 void PLL(void);
 interrupt void adca1_isr(void);
 void ConfigureIntPwm(void);
+void ConfigureADC(void);
+
 //
 // Globals
 //
@@ -49,13 +52,16 @@ void main(void)
 // This example function is found in the F2837xS_SysCtrl.c file.
 //
     InitSysCtrl();
+
 //
 // Step 2. Initialize GPIO:
 // This example function is found in the F2837xS_Gpio.c file and
 // illustrates how to set the GPIO to it's default state.
 //
-    InitGpio();
+    InitGpio(); // Skipped for this example
     InitEPwm2Gpio();
+    InitEPwm6Gpio();
+
 //
 // Step 3. Clear all interrupts and initialize PIE vector table:
 // Disable CPU interrupts
@@ -85,23 +91,28 @@ void main(void)
 // This function is found in F2837xS_PieVect.c.
 //
     InitPieVectTable();
+
 //
 // Map ISR functions
 //
     EALLOW;
-    PieVectTable.EPWM2_INT = &adca1_isr; //function for EPWM2 interrupt 1
+    PieVectTable.EPWM2_INT = &adca1_isr; //function for ADCA interrupt 1
     EDIS;
 
 //
 // Configure the ADC and power it up
 //
+    SetupADCContinuous();
     ConfigureADC();
+
+    //Setup the ADCs for software conversions
+    //
 //
 // Configure the ePWM
 //
-    ConfigureEPWM();
+    ConfigureEPWM2();
+    ConfigureEPWM6();
     ConfigureIntPwm();
-
 //
 // enable PIE interrupt
 //
@@ -115,22 +126,31 @@ void main(void)
     CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1;
     EDIS;
 
+    EALLOW;
+    GpioCtrlRegs.GPAMUX1.bit.GPIO11 = 0;
+    GpioCtrlRegs.GPADIR.bit.GPIO11 = 1;
+    EDIS;
+
      while(1);
 
 }
 
-//
-// ConfigureADC - Write ADC configurations and power up the ADC for both
-//                ADC A
-//
 void ConfigureADC(void)
 {
     EALLOW;
+
     //
     //write configurations
     //
     AdcaRegs.ADCCTL2.bit.PRESCALE = 6; //set ADCCLK divider to /4
-    AdcSetMode(ADC_ADCA, 1, ADC_SIGNALMODE_SINGLE);
+    AdcSetMode(ADC_ADCA, ADC_RESOLUTION_12BIT, ADC_SIGNALMODE_SINGLE);
+
+    //
+    //Set pulse positions to late
+    //
+    AdcaRegs.ADCCTL1.bit.INTPULSEPOS = 1;
+
+    //
     //power up the ADC
     //
     AdcaRegs.ADCCTL1.bit.ADCPWDNZ = 1;
@@ -139,18 +159,28 @@ void ConfigureADC(void)
     //delay for 1ms to allow ADC time to power up
     //
     DELAY_US(1000);
-
-    AdcaRegs.ADCSOC0CTL.bit.CHSEL = 0;  //SOC0 will convert pin A0
-    AdcaRegs.ADCSOC0CTL.bit.ACQPS = 63; //sample window is 100 SYSCLK cycles
-    AdcaRegs.ADCSOC0CTL.bit.TRIGSEL = 7; //trigger on ePWM2 SOCA/C
     EDIS;
+}
+    void SetupADCContinuous(void)
+    {
+
+        EALLOW;
+        AdcaRegs.ADCSOC0CTL.bit.CHSEL  = 0;  //SOC will convert on channel
+        AdcaRegs.ADCSOC0CTL.bit.ACQPS  = 14;    //sample window is acqps +
+
+        AdcaRegs.ADCINTSEL1N2.bit.INT1E = 0; //disable INT1 flag
+        AdcaRegs.ADCINTSEL1N2.bit.INT1CONT = 1;
+        AdcaRegs.ADCINTSEL1N2.bit.INT1SEL = 0;  //end of SOC0 will set INT1 flag
+
+        EDIS;
+
 }
 
 //
-// ConfigureEPWM - Configure EPWM SOC and compare values
+// ConfigureEPWM - Configure EPWM2
 //
 
-void ConfigureEPWM(void)
+void ConfigureEPWM2(void)
 {
     //
       // Setup TBCLK
@@ -188,9 +218,47 @@ void ConfigureEPWM(void)
                                                  // count
       EPwm2Regs.AQCTLB.bit.CBD = AQ_CLEAR;       // Clear PWM2A on event B, down
                                                  // count
+}
+void ConfigureEPWM6(void)
+{
+    //
+      // Setup TBCLK
+      //
+      EPwm6Regs.TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN; // Count updown
+      EPwm6Regs.TBPRD = 52083;       // Set timer period - 0x249F00 counts 60Hz
+      EPwm6Regs.TBCTL.bit.PHSEN = 0;    // Disable phase loading
+      EPwm6Regs.TBPHS.bit.TBPHS = 0x0000;        // Phase is 0
+      EPwm6Regs.TBCTR = 0x0000;                  // Clear counter
+      EPwm6Regs.TBCTL.bit.HSPCLKDIV = 0x0000    ;   // Clock ratio to SYSCLKOUT
+      EPwm6Regs.TBCTL.bit.CLKDIV = 3;
 
+      //
+      // Setup shadow register load on ZERO
+      //
+      EPwm6Regs.CMPCTL.bit.SHDWAMODE = CC_SHADOW;
+      EPwm6Regs.CMPCTL.bit.SHDWBMODE = CC_SHADOW;
+      EPwm6Regs.CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;
+      EPwm6Regs.CMPCTL.bit.LOADBMODE = CC_CTR_ZERO;
 
-   }
+      //
+      // Set Compare values
+      //
+      EPwm6Regs.CMPA.bit.CMPA = 26041;      // ‭124F80‬ 50%
+      EPwm6Regs.CMPB.bit.CMPB = 26041;      // ‭124F80‬ 50%
+
+      //
+      // Set actions
+      //
+      EPwm6Regs.AQCTLA.bit.CAU = AQ_SET;         // Set PWM2A on event A, up
+                                                 // count
+      EPwm6Regs.AQCTLA.bit.CBD = AQ_CLEAR;       // Clear PWM2A on event B, down
+                                                 // count
+      EPwm6Regs.AQCTLB.bit.CAU = AQ_SET;         // Set PWM2A on event A, up
+                                                 // count
+      EPwm6Regs.AQCTLB.bit.CBD = AQ_CLEAR;       // Clear PWM2A on event B, down
+                                                 // count
+}
+
 void ConfigureIntPwm(void)
 {
     EPwm2Regs.ETSEL.bit.INTEN = 1;        // Enable EPWMx_INT generation
@@ -200,22 +268,30 @@ void ConfigureIntPwm(void)
     EPwm2Regs.ETPS.bit.INTPSSEL = 0;        // Generate pulse on 1st event
     EPwm2Regs.ETCLR.bit.INT = 1;
     EPwm2Regs.ETFLG.bit.INT = 0;
-
 }
+
+
+//
+// SetupADCEpwm - Configure ADC EPWM acquisition window and trigger
+//
 
 interrupt void adca1_isr(void)
 {
+int16 PeriodCount=0;
 
-        EPwm2Regs.ETSEL.bit.SOCAEN = 1;  //enable SOCA
-        DELAY_US(10);
+        AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1;
+        AdcaRegs.ADCSOCFRC1.bit.SOC0 = 1;
+        EALLOW;
+        AdcaRegs.ADCINTSEL1N2.bit.INT1E = 0;
+        EDIS;
 
         VinQ15 = (AdcaResultRegs.ADCRESULT0);
-        Duty = VinQ15*120/819;
+
+        Duty = VinQ15*620/4095;
         EPwm2Regs.CMPA.bit.CMPA = Duty;
         EPwm2Regs.CMPB.bit.CMPB = Duty;
-        GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
 
-        //EPWM_TRIP_ZONE.C
+        GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
 
         EALLOW;
         EPwm2Regs.ETCLR.bit.INT = 1;
@@ -224,12 +300,40 @@ interrupt void adca1_isr(void)
 
         PieCtrlRegs.PIEACK.all = PIEACK_GROUP3;
 
-        EPwm2TZIntCount++;
+        if(PeriodCount<2400000)   // 6x60Hz periods to stabilize the PLL
+        {
+            EPWM6Regs.CMPA.bit.CMPA = Duty;
+
+            if (VinQ15>120) // only starts to count if Vin>120Vpk
+            {
+                        PeriodCount++;
+            }
+        }
+
+        //EPWM_TRIP_ZONE.C
+
+
+
+//        EPwm2TZIntCount++;
 
 //#define PI M_PI
 //#define toQ15 pow(2,15)
+
+
+
+//    g_nStepCount++;
+
+   // In case of error, uncomment next two lines. Set *pnError to 1 and copy Error message to szErrorMsg
+    //*pnError=1;
+    //strcpy(szErrorMsg, "Place Error description here.");
+
+
+
+
     sinQ15r = sin(wtQ15pi_0*3.14);
     cosQ15r = cos(wtQ15pi_0*3.14);
+
+
    eQ15 = VinQ15 - (AoQ15_0*cosQ15r); // erro
 
    AiQ15_0 =  eQ15*cosQ15r;   // OK
@@ -291,6 +395,8 @@ interrupt void adca1_isr(void)
 //   }
 
 }
+
+
 
 //
 // End of file
