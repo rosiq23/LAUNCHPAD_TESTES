@@ -218,6 +218,13 @@ void ConfigureEPWM2(void)
                                                  // count
       EPwm2Regs.AQCTLB.bit.CBD = AQ_CLEAR;       // Clear PWM2A on event B, down
                                                  // count
+
+      //DEADBAND
+      EPwm2Regs.DBCTL.bit.IN_MODE = 2;
+      EPwm2Regs.DBCTL.bit.POLSEL = 2;
+      EPwm2Regs.DBCTL.bit.OUT_MODE = 3;
+      EPwm2Regs.DBRED.bit.DBRED = 75;
+      EPwm2Regs.DBFED.bit.DBFED = 75;
 }
 void ConfigureEPWM6(void)
 {
@@ -225,12 +232,12 @@ void ConfigureEPWM6(void)
       // Setup TBCLK
       //
       EPwm6Regs.TBCTL.bit.CTRMODE = TB_COUNT_UPDOWN; // Count updown
-      EPwm6Regs.TBPRD = 52083;       // Set timer period - 0x249F00 counts 60Hz
+      EPwm6Regs.TBPRD = 52083;   //52083     // Set timer period - 0x249F00 counts 60Hz
       EPwm6Regs.TBCTL.bit.PHSEN = 0;    // Disable phase loading
       EPwm6Regs.TBPHS.bit.TBPHS = 0x0000;        // Phase is 0
       EPwm6Regs.TBCTR = 0x0000;                  // Clear counter
       EPwm6Regs.TBCTL.bit.HSPCLKDIV = 0x0000    ;   // Clock ratio to SYSCLKOUT
-      EPwm6Regs.TBCTL.bit.CLKDIV = 3;
+      EPwm6Regs.TBCTL.bit.CLKDIV = 3; //0
 
       //
       // Setup shadow register load on ZERO
@@ -257,6 +264,14 @@ void ConfigureEPWM6(void)
                                                  // count
       EPwm6Regs.AQCTLB.bit.CBD = AQ_CLEAR;       // Clear PWM2A on event B, down
                                                  // count
+
+      //DEADBAND - ATENCAO: NAO FOI TESTADO
+//
+//      EPwm6Regs.DBCTL.bit.IN_MODE = 2;
+//      EPwm6Regs.DBCTL.bit.POLSEL = 2;
+//      EPwm6Regs.DBCTL.bit.OUT_MODE = 3;
+//      EPwm6Regs.DBRED.bit.DBRED = 10;
+//      EPwm6Regs.DBFED.bit.DBFED = 10;
 }
 
 void ConfigureIntPwm(void)
@@ -279,6 +294,8 @@ interrupt void adca1_isr(void)
 {
 int16 PeriodCount=0;
 
+GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
+
         AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1;
         AdcaRegs.ADCSOCFRC1.bit.SOC0 = 1;
         EALLOW;
@@ -291,7 +308,10 @@ int16 PeriodCount=0;
         EPwm2Regs.CMPA.bit.CMPA = Duty;
         EPwm2Regs.CMPB.bit.CMPB = Duty;
 
-        GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
+//        EPwm6Regs.CMPA.bit.CMPA = Duty;      // ‭124F80‬ 50%
+//        EPwm6Regs.CMPB.bit.CMPB = Duty;      // ‭124F80‬ 50%
+
+
 
         EALLOW;
         EPwm2Regs.ETCLR.bit.INT = 1;
@@ -300,15 +320,16 @@ int16 PeriodCount=0;
 
         PieCtrlRegs.PIEACK.all = PIEACK_GROUP3;
 
-        if(PeriodCount<2400000)   // 6x60Hz periods to stabilize the PLL
-        {
-            EPWM6Regs.CMPA.bit.CMPA = Duty;
 
-            if (VinQ15>120) // only starts to count if Vin>120Vpk
-            {
-                        PeriodCount++;
-            }
-        }
+//        if(PeriodCount<2400000)   // 6x60Hz periods to stabilize the PLL
+//        {
+//            EPwm6Regs.CMPA.bit.CMPA = Duty;
+//
+//            if (VinQ15>120) // only starts to count if Vin>120Vpk
+//            {
+//                        PeriodCount++;
+//            }
+//        }
 
         //EPWM_TRIP_ZONE.C
 
@@ -393,6 +414,8 @@ int16 PeriodCount=0;
 //   out[3]=1;
 //   out[4]=0;
 //   }
+
+     GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
 
 }
 
