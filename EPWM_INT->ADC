@@ -126,10 +126,10 @@ void main(void)
     CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1;
     EDIS;
 
-    EALLOW;
-    GpioCtrlRegs.GPAMUX1.bit.GPIO11 = 0;
-    GpioCtrlRegs.GPADIR.bit.GPIO11 = 1;
-    EDIS;
+//    EALLOW;
+//    GpioCtrlRegs.GPAMUX1.bit.GPIO11 = 0;
+//    GpioCtrlRegs.GPADIR.bit.GPIO11 = 1;
+//    EDIS;
 
      while(1);
 
@@ -260,9 +260,9 @@ void ConfigureEPWM6(void)
                                                  // count
       EPwm6Regs.AQCTLA.bit.CBD = AQ_CLEAR;       // Clear PWM2A on event B, down
                                                  // count
-      EPwm6Regs.AQCTLB.bit.CAU = AQ_SET;         // Set PWM2A on event A, up
+      EPwm6Regs.AQCTLB.bit.CBU = AQ_CLEAR;         // Set PWM2A on event A, up
                                                  // count
-      EPwm6Regs.AQCTLB.bit.CBD = AQ_CLEAR;       // Clear PWM2A on event B, down
+      EPwm6Regs.AQCTLB.bit.CAD = AQ_SET;       // Clear PWM2A on event B, down
                                                  // count
 
       //DEADBAND - ATENCAO: NAO FOI TESTADO
@@ -294,7 +294,7 @@ interrupt void adca1_isr(void)
 {
 int16 PeriodCount=0;
 
-GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
+//GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
 
         AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1;
         AdcaRegs.ADCSOCFRC1.bit.SOC0 = 1;
@@ -415,7 +415,7 @@ GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
 //   out[4]=0;
 //   }
 
-     GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
+//     GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
 
 }
 
