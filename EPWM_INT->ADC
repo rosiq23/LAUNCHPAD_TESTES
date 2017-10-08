@@ -96,7 +96,10 @@ void main(void)
 // Map ISR functions
 //
     EALLOW;
+    PieVectTable.EPWM2_INT = &adca1_isr; //function for EPWM2 interrupt 1
     PieVectTable.EPWM2_INT = &adca1_isr; //function for ADCA interrupt 1
+    PieVectTable.XINT1_INT = &xint1_isr;
+    PieVectTable.XINT2_INT = &xint1_isr;
     EDIS;
 
 //
@@ -117,7 +120,10 @@ void main(void)
 // enable PIE interrupt
 //
     PieCtrlRegs.PIEIER3.bit.INTx2 = 1;
-
+    PieCtrlRegs.PIEIER1.bit.INTx4 = 1;          // Enable PIE Group 1 INT4
+    PieCtrlRegs.PIEIER1.bit.INTx5 = 1;          // Enable PIE Group 1 INT5
+    
+    
     IER |= M_INT3; //Enable group 3 interrupts
     EINT;  // Enable Global interrupt INTM
     ERTM;  // Enable Global realtime interrupt DBGM
@@ -126,13 +132,50 @@ void main(void)
     CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 1;
     EDIS;
 
-//    EALLOW;
-//    GpioCtrlRegs.GPAMUX1.bit.GPIO11 = 0;
-//    GpioCtrlRegs.GPADIR.bit.GPIO11 = 1;
-//    EDIS;
+    EALLOW;
+    GpioCtrlRegs.GPAMUX2.bit.GPIO18 = 0;
+    GpioCtrlRegs.GPADIR.bit.GPIO18 = 1;
+    EDIS;
 
+    EALLOW;
+    
+    GpioCtrlRegs.GPAMUX2.bit.GPIO30 = 0;         // GPIO
+    GpioCtrlRegs.GPADIR.bit.GPIO30 = 0;          // input
+    GpioCtrlRegs.GPAQSEL2.bit.GPIO30 = 0;        // XINT1 Synch to SYSCLKOUT only
+    
+    GpioCtrlRegs.GPAMUX2.bit.GPIO31 = 0;         // GPIO
+    GpioCtrlRegs.GPADIR.bit.GPIO31 = 0;          // input
+    GpioCtrlRegs.GPAQSEL2.bit.GPIO30 = 0;        // XINT1 Synch to SYSCLKOUT only
+    
+    EDIS;
+    
+    
+    // GPIO30 is XINT1, GPIO31 is XINT2
+    GPIO_SetupXINT1Gpio(30);
+    GPIO_SetupXINT2Gpio(31);
+    
+    //
+    // Configure XINT1
+    //
+       XintRegs.XINT1CR.bit.POLARITY = 1;          // Rising edge interrupt
+       XintRegs.XINT2CR.bit.POLARITY = 1;          // Rising edge interrupt
+
+    //
+    // Enable XINT1 and XINT2
+    //
+       XintRegs.XINT1CR.bit.ENABLE = 1;            // Enable XINT1
+       XintRegs.XINT2CR.bit.ENABLE = 1;            // Enable XINT2
+
+    
      while(1);
 
+}
+
+interrupt void xint1_isr(void)
+{
+    
+    while(1);
+    
 }
 
 void ConfigureADC(void)
@@ -294,7 +337,7 @@ interrupt void adca1_isr(void)
 {
 int16 PeriodCount=0;
 
-//GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
+GpioDataRegs.GPATOGGLE.bit.GPIO18 = 1;
 
         AdcaRegs.ADCINTSEL1N2.bit.INT1E = 1;
         AdcaRegs.ADCSOCFRC1.bit.SOC0 = 1;
@@ -415,7 +458,7 @@ int16 PeriodCount=0;
 //   out[4]=0;
 //   }
 
-//     GpioDataRegs.GPATOGGLE.bit.GPIO11 = 1;
+     GpioDataRegs.GPATOGGLE.bit.GPIO18 = 1;
 
 }
 
